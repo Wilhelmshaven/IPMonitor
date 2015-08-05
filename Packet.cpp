@@ -8,7 +8,7 @@ Device::Device()
 	ip_netmask = new char[16];
 	gateway_ip = new char[16];
 	mac = new char[6];
-	macStr = new char[17];
+	macStr = new char[18];
 	errbuf = new char[PCAP_ERRBUF_SIZE];
 	select = 0;
 	adhandle = NULL;

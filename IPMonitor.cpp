@@ -518,7 +518,7 @@ UINT SendArpPacket(LPVOID lpParameter)//(pcap_t *adhandle,char *ip,BYTE *mac,cha
 	sparam *spara = &sp;
 	BYTE *sendbuf = new BYTE[60];                      // arp包结构大小，只能是60，不计fcs
 	arp_frame arpFrame;
-
+	
 	while (1)
 	{
 		// 等待开始指令并确认是否有退出指令
@@ -551,6 +551,8 @@ UINT SendArpPacket(LPVOID lpParameter)//(pcap_t *adhandle,char *ip,BYTE *mac,cha
 		ResetEvent(hArpEvent);
 	}
 
+	delete[]sendbuf;
+
     return 0;
 }
 
@@ -580,6 +582,8 @@ UINT AnalyzePacket(LPVOID lpParameter)//(pcap_t *adhandle)
 		pcap_pkthdr * pkt_header;
 		const u_char * pkt_data;
 		int arp = 0;                            // ARP包控制变量（只收一个），待替换
+		arp_frame *recvARP;
+		ip_frame *recvIP;
 
 		while (WaitForSingleObject(hCapture, 0) == WAIT_OBJECT_0)
 		{
@@ -593,19 +597,19 @@ UINT AnalyzePacket(LPVOID lpParameter)//(pcap_t *adhandle)
 					if (*(WORD *)(pkt_data + 12) == htons(ETH_ARP))		
 					{
 						// 把流数据装进ARP帧结构
-						arp_frame *recv = (arp_frame *)pkt_data;
+						recvARP = (arp_frame *)pkt_data;
 
 						// 格式化IP以进行比较
-						sprintf_s(source_ip, 16, "%d.%d.%d.%d", recv->ah.source_ip_add & 255, recv->ah.source_ip_add >> 8 & 255,
-							recv->ah.source_ip_add >> 16 & 255, recv->ah.source_ip_add >> 24 & 255);
+						sprintf_s(source_ip, 16, "%d.%d.%d.%d", recvARP->ah.source_ip_add & 255, recvARP->ah.source_ip_add >> 8 & 255,
+							recvARP->ah.source_ip_add >> 16 & 255, recvARP->ah.source_ip_add >> 24 & 255);
 
 						// 判断操作符位是否是ARP_REPLY，即滤出ARP应答包并确认是网关答复的ARP包
-						if (recv->ah.operation_field == htons(ARP_REPLY) && (strcmp(source_ip, spara->gateway_ip) == 0))
+						if (recvARP->ah.operation_field == htons(ARP_REPLY) && (strcmp(source_ip, spara->gateway_ip) == 0))
 						{
 							// 格式化MAC便于输出
-							sprintf_s(mac_add, 18, "%02X-%02X-%02X-%02X-%02X-%02X", recv->ah.source_mac_add[0],
-								recv->ah.source_mac_add[1], recv->ah.source_mac_add[2], recv->ah.source_mac_add[3],
-								recv->ah.source_mac_add[4], recv->ah.source_mac_add[5]);
+							sprintf_s(mac_add, 18, "%02X-%02X-%02X-%02X-%02X-%02X", recvARP->ah.source_mac_add[0],
+								recvARP->ah.source_mac_add[1], recvARP->ah.source_mac_add[2], recvARP->ah.source_mac_add[3],
+								recvARP->ah.source_mac_add[4], recvARP->ah.source_mac_add[5]);
 
 							// 输出网关的MAC地址
 							EditBox = GetDlgItem(spara->myDlg, IDC_EDIT_GATEMAC);
@@ -625,23 +629,23 @@ UINT AnalyzePacket(LPVOID lpParameter)//(pcap_t *adhandle)
 				if (*(WORD *)(pkt_data + 12) == htons(ETH_IP))
 				{
 					// 把流数据装进IP帧结构
-					ip_frame *recv = (ip_frame *)pkt_data;
+					recvIP = (ip_frame *)pkt_data;
 
 					// 格式化IP以进行比较
-					sprintf_s(source_ip, 16, "%d.%d.%d.%d", recv->ih.source_add & 255, recv->ih.source_add >> 8 & 255,
-						recv->ih.source_add >> 16 & 255, recv->ih.source_add >> 24 & 255);
-					sprintf_s(dest_ip, 16, "%d.%d.%d.%d", recv->ih.dest_add & 255, recv->ih.dest_add >> 8 & 255,
-						recv->ih.dest_add >> 16 & 255, recv->ih.dest_add >> 24 & 255);
+					sprintf_s(source_ip, 16, "%d.%d.%d.%d", recvIP->ih.source_add & 255, recvIP->ih.source_add >> 8 & 255,
+						recvIP->ih.source_add >> 16 & 255, recvIP->ih.source_add >> 24 & 255);
+					sprintf_s(dest_ip, 16, "%d.%d.%d.%d", recvIP->ih.dest_add & 255, recvIP->ih.dest_add >> 8 & 255,
+						recvIP->ih.dest_add >> 16 & 255, recvIP->ih.dest_add >> 24 & 255);
 
 					// 判断是否是我的包（和我的IP进行比较，以及CheckBox的状态）
 					if (((strcmp(source_ip, spara->myIP) == 0) && sCheck) || ((strcmp(dest_ip, spara->myIP) == 0) && dCheck))
 					{
 						// 判断协议是啥，十进制中UDP是17(0x11)，TCP是6(0x06)
-						if (recv->ih.protocol == TCP)
+						if (recvIP->ih.protocol == TCP)
 						{
 							AddListViewItems(hwndListView, source_ip, dest_ip, "TCP");
 						}
-						if (recv->ih.protocol == UDP)
+						if (recvIP->ih.protocol == UDP)
 						{
 							AddListViewItems(hwndListView, source_ip, dest_ip, "UDP");
 						}
@@ -654,6 +658,10 @@ UINT AnalyzePacket(LPVOID lpParameter)//(pcap_t *adhandle)
 		if (WaitForSingleObject(hFinish, 0) == WAIT_OBJECT_0)break;
 	}
 
+	delete []source_ip;
+	delete []dest_ip;
+	delete []mac_add;
+
     return 0;
 }
 
@@ -662,10 +670,10 @@ BOOL AddListViewItems(HWND hwndListView, char *ip_add, char *dest_add, char *pro
 {
 	// 先进行检索看条目是不是已经有了
 	int ListItemCount = ListView_GetItemCount(hwndListView);
-	char *sIP = new char[];
-	char *dIP = new char[];
-	char *pro = new char[];
-	char *count = new char[];
+	char *sIP = new char[16];
+	char *dIP = new char[16];
+	char *pro = new char[6];
+	char *count = new char[6];
 	int packets = 0;
 	int flag = 0;
 
@@ -683,7 +691,7 @@ BOOL AddListViewItems(HWND hwndListView, char *ip_add, char *dest_add, char *pro
 			// 刷新统计数据，先获取第四列的数字（字符串），转成整型加一，再转回字符串填回去，人才啊！
 			ListView_GetItemText(hwndListView, i, 4, count, 8);
 			packets = atoi(count);
-			sprintf(count, "%d", packets + 1);
+			sprintf_s(count, 6, "%d", packets + 1);
 			ListView_SetItemText(hwndListView, i, 4, count);
 			flag = 1;
 			break;
@@ -707,6 +715,11 @@ BOOL AddListViewItems(HWND hwndListView, char *ip_add, char *dest_add, char *pro
 		ListView_SetItemText(hwndListView, 0, 3, protocol);
 		ListView_SetItemText(hwndListView, 0, 4, "1");
 	}
+
+	delete []sIP;
+	delete []dIP;
+	delete []pro;
+	delete []count;
 
     return TRUE;
 }
